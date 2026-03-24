@@ -24,9 +24,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": {
-      "python-env/**/*": "./"
-    }
+    "resources": [
+      "python-env/**/*"
+    ]
   },
   "plugins": {
     "shell": {
