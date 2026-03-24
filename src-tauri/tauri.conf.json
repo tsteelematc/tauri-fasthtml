@@ -1,0 +1,36 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicbarker/tauri/refs/heads/dev/crates/tauri-schema-generator/schemas/config.schema.json",
+  "productName": "Tauri FastHTML",
+  "version": "0.1.0",
+  "identifier": "com.tauri-fasthtml.app",
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "frontendDist": "../frontend"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Tauri FastHTML Counter",
+        "width": 600,
+        "height": 400,
+        "url": "index.html"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": {
+      "python-env/**/*": "./"
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}
