@@ -76,14 +76,17 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(move |_window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                let pid = python_pid.load(Ordering::SeqCst);
-                if pid != 0 {
-                    #[cfg(target_os = "windows")]
-                    { let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).output(); }
-                    #[cfg(not(target_os = "windows"))]
-                    { let _ = std::process::Command::new("kill").arg(pid.to_string()).output(); }
+            match event {
+                tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed => {
+                    let pid = python_pid.load(Ordering::SeqCst);
+                    if pid != 0 {
+                        #[cfg(target_os = "windows")]
+                        { let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).output(); }
+                        #[cfg(not(target_os = "windows"))]
+                        { let _ = std::process::Command::new("kill").arg(pid.to_string()).output(); }
+                    }
                 }
+                _ => {}
             }
         })
         .run(tauri::generate_context!())
