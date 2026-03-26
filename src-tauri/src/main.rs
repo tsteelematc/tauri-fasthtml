@@ -2,10 +2,37 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use tauri::Manager;
 
+// Global PID for atexit/signal cleanup
+static PYTHON_PID: AtomicU32 = AtomicU32::new(0);
+
+#[cfg(not(target_os = "windows"))]
+extern "C" fn cleanup_on_exit() {
+    let pid = PYTHON_PID.load(Ordering::SeqCst);
+    if pid != 0 {
+        unsafe { libc::kill(pid as i32, libc::SIGKILL); }
+    }
+}
+
+fn kill_python(pid: u32) {
+    if pid == 0 { return; }
+    eprintln!("Killing Python process {}", pid);
+    #[cfg(target_os = "windows")]
+    { let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).output(); }
+    #[cfg(not(target_os = "windows"))]
+    {
+        unsafe { libc::kill(pid as i32, libc::SIGKILL); }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Register atexit handler to kill Python when this process exits for any reason
+    #[cfg(not(target_os = "windows"))]
+    unsafe { libc::atexit(cleanup_on_exit); }
+
     let python_pid = Arc::new(AtomicU32::new(0));
     let python_pid_clone = python_pid.clone();
+    let python_pid_cleanup = python_pid.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -30,7 +57,9 @@ pub fn run() {
                 write_log(&mut log, &format!("resource_dir: {:?}", resource_dir));
                 let child = start_python_server(resource_dir.as_deref(), &mut log);
                 if let Some(mut child) = child {
-                    pid_store.store(child.id(), Ordering::SeqCst);
+                    let child_pid = child.id();
+                    pid_store.store(child_pid, Ordering::SeqCst);
+                    PYTHON_PID.store(child_pid, Ordering::SeqCst);
 
                     // Capture Python stderr in a separate thread
                     if let Some(stderr) = child.stderr.take() {
@@ -79,19 +108,16 @@ pub fn run() {
         .on_window_event(move |_window, event| {
             match event {
                 tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed => {
-                    let pid = python_pid.load(Ordering::SeqCst);
-                    if pid != 0 {
-                        #[cfg(target_os = "windows")]
-                        { let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).output(); }
-                        #[cfg(not(target_os = "windows"))]
-                        { let _ = std::process::Command::new("kill").arg(pid.to_string()).output(); }
-                    }
+                    kill_python(python_pid.load(Ordering::SeqCst));
                 }
                 _ => {}
             }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+
+    // Final cleanup: kill Python when the Tauri event loop exits (Cmd+Q, etc.)
+    kill_python(python_pid_cleanup.load(Ordering::SeqCst));
 }
 
 fn find_python_env(resource_dir: Option<&std::path::Path>) -> std::path::PathBuf {
