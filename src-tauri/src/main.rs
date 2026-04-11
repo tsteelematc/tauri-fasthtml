@@ -80,9 +80,9 @@ pub fn run() {
                         });
                     }
 
-                    // Wait for server to be ready
+                    // Wait for server to be ready (up to 60s — model load can be slow)
                     let mut server_ready = false;
-                    for i in 0..50 {
+                    for i in 0..300 {
                         std::thread::sleep(std::time::Duration::from_millis(100));
                         if let Ok(resp) = reqwest::blocking::get("http://127.0.0.1:5001/health") {
                             if resp.status().is_success() {

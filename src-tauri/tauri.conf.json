@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicbarker/tauri/refs/heads/dev/crates/tauri-schema-generator/schemas/config.schema.json",
-  "productName": "Tauri FastHTML",
+  "productName": "Native Agents",
   "version": "0.1.0",
-  "identifier": "com.tauri-fasthtml.app",
+  "identifier": "com.native-agents.app",
   "build": {
     "beforeDevCommand": "",
     "beforeBuildCommand": "",
@@ -11,9 +11,9 @@
   "app": {
     "windows": [
       {
-        "title": "Tauri FastHTML Counter",
-        "width": 600,
-        "height": 400,
+        "title": "Native Agents",
+        "width": 800,
+        "height": 600,
         "url": "index.html"
       }
     ],
@@ -25,7 +25,8 @@
     "active": true,
     "targets": "all",
     "resources": [
-      "python-env/**/*"
+      "python-env/**/*",
+      "../models/**/*"
     ]
   },
   "plugins": {

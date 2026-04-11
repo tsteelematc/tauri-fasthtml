@@ -3,8 +3,12 @@
 ## Build and run commands
 
 - Install Node dependencies: `npm install`
-- Create or refresh the bundled Python runtime and venv: `python scripts/setup-python.py`
+- Create or refresh the bundled Python runtime, venv, and install llama-cpp-python: `python scripts/setup-python.py`
   - On macOS, `python3 scripts/setup-python.py` is the safest form if `python` is not available.
+  - macOS ARM64 and Windows x64: pre-built llama-cpp-python wheel is installed automatically (no compiler needed).
+  - macOS x64: source build — requires Xcode Command Line Tools (`xcode-select --install`).
+  - Windows ARM64: source build — requires MSVC Build Tools.
+- Download the GGUF model (~400 MB) into `models/`: `python scripts/download-model.py`
 - Run the desktop app in development: `npm run tauri:dev`
 - Build the production app bundle: `npm run tauri:build`
 
@@ -33,6 +37,8 @@
 ## Key conventions
 
 - Treat `src-tauri/python-env/` as generated application runtime state. Edit source files under `python/`, then rerun `python scripts/setup-python.py` to copy changes into `src-tauri/python-env/app/`.
+- The `models/` directory at the project root is also generated (gitignored, ~400 MB). Populate it by running `python scripts/download-model.py`. `setup-python.py` copies it to `python-env/models/` so the running app can find it.
+- `server.py` resolves the GGUF via `Path(__file__).parent.parent / "models" / "qwen2.5-0.5b-instruct-q4_k_m.gguf"`. In dev the file is at `python-env/app/server.py`, so the model is at `python-env/models/`. In production bundles the same relative path holds because both directories are bundled as Tauri resources.
 - Keep the local server contract synchronized across files:
   - Port `5001`
   - Health route `/health`

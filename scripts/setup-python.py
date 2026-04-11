@@ -25,6 +25,11 @@ PYTHON_ENV_DIR = PROJECT_ROOT / "src-tauri" / "python-env"
 PYTHON_DIR = PYTHON_ENV_DIR / "python"
 VENV_DIR = PYTHON_ENV_DIR / "venv"
 APP_DIR = PYTHON_ENV_DIR / "app"
+MODELS_SRC_DIR = PROJECT_ROOT / "models"
+MODELS_DST_DIR = PYTHON_ENV_DIR / "models"
+
+LLAMA_CPP_VERSION = "0.3.19"
+LLAMA_CPP_BASE_URL = "https://github.com/abetlen/llama-cpp-python/releases/download"
 
 
 def get_download_url() -> str:
@@ -98,6 +103,52 @@ def install_dependencies():
     print("Dependencies installed.")
 
 
+def get_llama_cpp_wheel_url() -> str | None:
+    """Return a pre-built wheel URL, or None to fall back to source build."""
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+
+    if system == "darwin" and machine == "arm64":
+        # cp312 ARM64 wheel (CPU + Metal via llama.cpp's built-in Metal support)
+        return (
+            f"{LLAMA_CPP_BASE_URL}/v{LLAMA_CPP_VERSION}/"
+            f"llama_cpp_python-{LLAMA_CPP_VERSION}-cp312-cp312-macosx_11_0_arm64.whl"
+        )
+    if system == "windows" and machine in ("amd64", "x86_64"):
+        return (
+            f"{LLAMA_CPP_BASE_URL}/v{LLAMA_CPP_VERSION}/"
+            f"llama_cpp_python-{LLAMA_CPP_VERSION}-cp312-cp312-win_amd64.whl"
+        )
+    # macOS x64 and Windows ARM64 have no pre-built wheel — source build
+    return None
+
+
+def install_llama_cpp():
+    pip = get_venv_pip()
+    wheel_url = get_llama_cpp_wheel_url()
+    if wheel_url:
+        print(f"Installing llama-cpp-python from pre-built wheel...")
+        subprocess.run([str(pip), "install", wheel_url], check=True)
+    else:
+        system = platform.system()
+        machine = platform.machine()
+        print(f"No pre-built wheel for {system} {machine} — building llama-cpp-python from source.")
+        print("  macOS x64: ensure Xcode Command Line Tools are installed (xcode-select --install)")
+        print("  Windows ARM64: ensure MSVC Build Tools are installed")
+        subprocess.run([str(pip), "install", "llama-cpp-python"], check=True)
+    print("llama-cpp-python installed.")
+
+
+def copy_models():
+    if not MODELS_SRC_DIR.exists():
+        print(f"No models/ directory found at {MODELS_SRC_DIR} — skipping. Run scripts/download-model.py first.")
+        return
+    if MODELS_DST_DIR.exists():
+        shutil.rmtree(MODELS_DST_DIR)
+    shutil.copytree(MODELS_SRC_DIR, MODELS_DST_DIR)
+    print(f"Models copied to {MODELS_DST_DIR}")
+
+
 def copy_app_code():
     if APP_DIR.exists():
         shutil.rmtree(APP_DIR)
@@ -117,10 +168,14 @@ def main():
     download_and_extract(url)
     create_venv()
     install_dependencies()
+    install_llama_cpp()
     copy_app_code()
+    copy_models()
 
     print("\n=== Setup complete! ===")
     print(f"Python env: {PYTHON_ENV_DIR}")
+    if not MODELS_DST_DIR.exists():
+        print("NOTE: Run 'python scripts/download-model.py' to download the GGUF model before starting the app.")
     print("You can now run: npm run tauri dev")
 
 
