@@ -375,7 +375,7 @@ async def post(prompt: str):
     if not tool_calls and "<tool_call>" in content:
         # Qwen models emit tool calls as: <tool_call>{{"name":...,"arguments":...}}</tool_call>
         import re
-        match = re.search(r"<tool_call>\s*(\{.*\})\s*</tool_call>", content, re.DOTALL)
+        match = re.search(r"<tool_call>\s*(\{.*?\})\s*(?:</tool_call>|$)", content, re.DOTALL)
         if match:
             try:
                 raw = match.group(1).replace("{{", "{").replace("}}", "}")
