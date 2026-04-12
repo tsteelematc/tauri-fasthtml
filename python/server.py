@@ -108,94 +108,172 @@ async def _web_search(query: str) -> str:
 app, rt = fast_app(
     hdrs=[
         Style("""
-            * { box-sizing: border-box; }
-            body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                display: flex; justify-content: center; align-items: flex-start;
-                min-height: 100vh; margin: 0; padding: 2rem;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
+            *{box-sizing:border-box;margin:0;padding:0}
+            html,body{height:100%}
+            body{
+                font-family:'SF Mono','Cascadia Code','Fira Code','Consolas',monospace;
+                background:#111113;
+                color:#c8c8cc;
+                display:flex;flex-direction:column;
+                min-height:100vh;
             }
-            .chat-card {
-                background: rgba(255,255,255,0.15);
-                backdrop-filter: blur(10px);
-                border-radius: 20px; padding: 2rem;
-                width: 100%; max-width: 700px;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+            /* subtle gradient bar at top */
+            body::before{
+                content:'';display:block;height:2px;flex-shrink:0;
+                background:linear-gradient(90deg,#6e56cf 0%,#53a8e2 50%,#6e56cf 100%);
             }
-            h1 { margin: 0 0 1.5rem; font-size: 1.4rem; font-weight: 300; text-align: center; }
-            textarea {
-                width: 100%; padding: 0.75rem; border-radius: 10px;
-                border: 2px solid rgba(255,255,255,0.4);
-                background: rgba(255,255,255,0.1); color: white;
-                font-size: 0.95rem; font-family: inherit; resize: vertical;
-                min-height: 80px; outline: none;
+            .shell{
+                flex:1;display:flex;flex-direction:column;
+                padding:1.25rem 1.5rem 1rem;
+                max-width:56rem;width:100%;
             }
-            textarea::placeholder { color: rgba(255,255,255,0.6); }
-            textarea:focus { border-color: rgba(255,255,255,0.8); }
-            button {
-                margin-top: 0.75rem; width: 100%;
-                padding: 0.6rem 1.5rem; font-size: 1rem;
-                border: 2px solid white; border-radius: 10px;
-                background: transparent; color: white; cursor: pointer;
-                transition: background 0.2s;
+            @media(min-width:64rem){.shell{padding:1.5rem 2rem 1rem}}
+            /* header */
+            .shell-header{
+                display:flex;align-items:center;gap:0.5rem;
+                margin-bottom:1.25rem;
+                font-size:0.8rem;color:#6e6e76;
+                user-select:none;
             }
-            button:hover { background: rgba(255,255,255,0.2); }
-            .response-box {
-                margin-top: 1.5rem; padding: 1rem;
-                background: rgba(0,0,0,0.2); border-radius: 10px;
-                min-height: 60px; white-space: pre-wrap; line-height: 1.6;
-                font-size: 0.95rem;
+            .shell-header .accent{color:#8b8bf5}
+            /* command input area */
+            .cmd-input{
+                display:flex;gap:0.5rem;align-items:flex-end;
+                margin-bottom:1rem;
             }
-            .tool-indicator {
-                margin-top: 0.75rem; padding: 0.5rem 0.75rem;
-                background: rgba(255,255,255,0.1); border-radius: 8px;
-                font-size: 0.85rem; color: rgba(255,255,255,0.7);
+            .cmd-input .prompt-char{
+                color:#6e56cf;font-size:1rem;line-height:2.25rem;
+                flex-shrink:0;user-select:none;
             }
-            .placeholder { color: rgba(255,255,255,0.5); font-style: italic; }
-            .htmx-indicator { opacity: 0.6; }
-        """)
+            .cmd-input textarea{
+                flex:1;
+                background:#1a1a1e;color:#e0e0e4;
+                border:1px solid #2a2a30;border-radius:6px;
+                padding:0.5rem 0.75rem;
+                font:inherit;font-size:0.9rem;
+                resize:none;outline:none;
+                min-height:2.25rem;max-height:10rem;
+                line-height:1.5;
+                transition:border-color .15s;
+            }
+            .cmd-input textarea::placeholder{color:#4a4a52}
+            .cmd-input textarea:focus{border-color:#6e56cf}
+            .cmd-input button{
+                background:#6e56cf;color:#fff;
+                border:none;border-radius:6px;
+                padding:0.5rem 1rem;
+                font:inherit;font-size:0.85rem;
+                cursor:pointer;white-space:nowrap;
+                transition:background .15s;
+                height:2.25rem;flex-shrink:0;
+            }
+            .cmd-input button:hover{background:#7c6ad4}
+            .cmd-input button:active{background:#5b45b0}
+            /* output region */
+            .output{
+                flex:1;overflow-y:auto;
+                padding:0.75rem 0;
+                white-space:pre-wrap;word-break:break-word;
+                font-size:0.88rem;line-height:1.7;
+            }
+            .output::-webkit-scrollbar{width:4px}
+            .output::-webkit-scrollbar-thumb{background:#2a2a30;border-radius:2px}
+            .output .empty{color:#4a4a52;font-style:italic}
+            .output .tool-tag{
+                display:inline-block;
+                background:#1e1e24;border:1px solid #2a2a30;border-radius:4px;
+                padding:0.15rem 0.5rem;margin-bottom:0.5rem;
+                font-size:0.78rem;color:#53a8e2;
+            }
+            /* thinking indicator */
+            .thinking{color:#6e6e76;display:flex;align-items:center;gap:0.4rem}
+            .thinking .dots span{
+                display:inline-block;width:4px;height:4px;
+                background:#6e56cf;border-radius:50%;
+                animation:blink 1.4s infinite both;
+            }
+            .thinking .dots span:nth-child(2){animation-delay:.2s}
+            .thinking .dots span:nth-child(3){animation-delay:.4s}
+            @keyframes blink{
+                0%,80%,100%{opacity:.25}
+                40%{opacity:1}
+            }
+            /* kbd shortcut hint */
+            kbd{
+                background:#1e1e24;border:1px solid #2a2a30;border-radius:3px;
+                padding:0.1rem 0.35rem;font-size:0.75rem;color:#6e6e76;
+            }
+        """),
+        # auto-resize textarea & submit on Enter (shift+enter for newline)
+        Script("""
+            document.addEventListener('input', e => {
+                if(e.target.matches('.cmd-input textarea')){
+                    e.target.style.height='auto';
+                    e.target.style.height=Math.min(e.target.scrollHeight,160)+'px';
+                }
+            });
+            document.addEventListener('keydown', e => {
+                if(e.target.matches('.cmd-input textarea') && e.key==='Enter' && !e.shiftKey){
+                    e.preventDefault();
+                    e.target.closest('form').querySelector('button').click();
+                }
+            });
+        """),
     ]
 )
+
+
+def _thinking_indicator():
+    """Animated 'Thinking' shown while HTMX request is in-flight."""
+    return Div(
+        Span("Thinking"),
+        Span(Span(), Span(), Span(), cls="dots"),
+        cls="thinking",
+    )
 
 
 def response_box(text: str = "", tool_info: str = "", placeholder: bool = True):
     parts = []
     if tool_info:
-        parts.append(Div(f"🔧 {tool_info}", cls="tool-indicator"))
+        parts.append(Span(f"⚡ {tool_info}", cls="tool-tag"))
     if placeholder and not text:
-        parts.append(Div(Span("Response will appear here...", cls="placeholder"), cls="response-box"))
+        parts.append(Span("waiting for input", cls="empty"))
     else:
-        parts.append(Div(text, cls="response-box"))
-    return Div(*parts, id="response")
+        parts.append(text)
+    return Div(*parts, id="response", cls="output")
 
 
 @rt("/")
 def get():
-    return Titled(
-        "Native Agents",
+    return (
+        Title("Native Agents"),
         Div(
-            H1("🤖 Native Agents"),
+            Div(
+                Span("native-agents", cls="accent"),
+                Span(" — local model · "),
+                Span("ready" if _llm_ready else "loading model…"),
+                cls="shell-header",
+            ),
             Form(
-                Textarea(
-                    name="prompt",
-                    placeholder='Try: "search for weather forecast"',
-                    rows=4,
-                    autofocus=True,
-                ),
-                Button(
-                    "Generate",
-                    hx_post="/generate",
-                    hx_target="#response",
-                    hx_swap="outerHTML",
-                    hx_indicator=".chat-card",
+                Div(
+                    Span("›", cls="prompt-char"),
+                    Textarea(
+                        name="prompt",
+                        placeholder="ask anything…",
+                        rows=1,
+                        autofocus=True,
+                    ),
+                    Button("Run"),
+                    cls="cmd-input",
                 ),
                 hx_post="/generate",
                 hx_target="#response",
                 hx_swap="outerHTML",
+                hx_indicator="#thinking",
             ),
+            Div(_thinking_indicator(), id="thinking", cls="htmx-indicator"),
             response_box(),
-            cls="chat-card",
+            cls="shell",
         ),
     )
 
