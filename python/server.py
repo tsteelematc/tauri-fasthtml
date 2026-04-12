@@ -40,8 +40,8 @@ def counter_display():
         H1("⚡ Tauri + FastHTML"),
         Div(str(count), cls="count", id="count"),
         Div(
-            Button("−", hx_post="/decrement", hx_target="#counter", hx_swap="outerHTML"),
-            Button("+", hx_post="/increment", hx_target="#counter", hx_swap="outerHTML"),
+            Button("−5", hx_post="/decrement", hx_target="#counter", hx_swap="outerHTML"),
+            Button("+5", hx_post="/increment", hx_target="#counter", hx_swap="outerHTML"),
             cls="buttons"
         ),
         id="counter", cls="counter-card"
@@ -54,13 +54,13 @@ def get():
 @rt("/increment")
 def post():
     global count
-    count += 1
+    count += 5
     return counter_display()
 
 @rt("/decrement")
 def post():
     global count
-    count -= 1
+    count -= 5
     return counter_display()
 
 @rt("/health")
