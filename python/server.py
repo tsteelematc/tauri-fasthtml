@@ -128,7 +128,7 @@ app, rt = fast_app(
                 max-width:56rem;width:100%;
             }
             @media(min-width:64rem){.shell{padding:1.5rem 2rem 1rem}}
-            /* header */
+            /* header — live-updated via /status */
             .shell-header{
                 display:flex;align-items:center;gap:0.5rem;
                 margin-bottom:1.25rem;
@@ -136,21 +136,19 @@ app, rt = fast_app(
                 user-select:none;
             }
             .shell-header .accent{color:#8b8bf5}
+            .shell-header .status-ready{color:#3ddc84}
+            .shell-header .status-loading{color:#f5a623}
             /* command input area */
             .cmd-input{
-                display:flex;gap:0.5rem;align-items:flex-end;
+                display:flex;gap:0.5rem;align-items:flex-start;
                 margin-bottom:1rem;
-            }
-            .cmd-input .prompt-char{
-                color:#6e56cf;font-size:1rem;line-height:2.25rem;
-                flex-shrink:0;user-select:none;
             }
             .cmd-input textarea{
                 flex:1;
                 background:#1a1a1e;color:#e0e0e4;
                 border:1px solid #2a2a30;border-radius:6px;
                 padding:0.5rem 0.75rem;
-                font:inherit;font-size:0.9rem;
+                font-family:inherit;font-size:0.9rem;
                 resize:none;outline:none;
                 min-height:2.25rem;max-height:10rem;
                 line-height:1.5;
@@ -161,32 +159,51 @@ app, rt = fast_app(
             .cmd-input button{
                 background:#6e56cf;color:#fff;
                 border:none;border-radius:6px;
-                padding:0.5rem 1rem;
-                font:inherit;font-size:0.85rem;
+                padding:0 1rem;
+                font-family:inherit;font-size:0.85rem;
                 cursor:pointer;white-space:nowrap;
                 transition:background .15s;
                 height:2.25rem;flex-shrink:0;
+                line-height:2.25rem;
             }
             .cmd-input button:hover{background:#7c6ad4}
             .cmd-input button:active{background:#5b45b0}
             /* output region */
-            .output{
+            #output-log{
                 flex:1;overflow-y:auto;
-                padding:0.75rem 0;
-                white-space:pre-wrap;word-break:break-word;
+                padding:0.5rem 0;
                 font-size:0.88rem;line-height:1.7;
             }
-            .output::-webkit-scrollbar{width:4px}
-            .output::-webkit-scrollbar-thumb{background:#2a2a30;border-radius:2px}
-            .output .empty{color:#4a4a52;font-style:italic}
-            .output .tool-tag{
-                display:inline-block;
+            #output-log::-webkit-scrollbar{width:4px}
+            #output-log::-webkit-scrollbar-thumb{background:#2a2a30;border-radius:2px}
+            .empty-state{color:#4a4a52;font-style:italic;font-size:0.85rem}
+            /* individual exchange block */
+            .exchange{
+                padding:0.75rem 0;
+                border-bottom:1px solid #1e1e24;
+            }
+            .exchange:last-child{border-bottom:none}
+            .exchange .user-prompt{
+                color:#6e6e76;font-size:0.8rem;margin-bottom:0.4rem;
+                display:flex;align-items:baseline;gap:0.4rem;
+            }
+            .exchange .user-prompt .label{color:#6e56cf}
+            .exchange .agent-response{
+                white-space:pre-wrap;word-break:break-word;
+                color:#c8c8cc;
+            }
+            .exchange .tool-tag{
+                display:block;
                 background:#1e1e24;border:1px solid #2a2a30;border-radius:4px;
-                padding:0.15rem 0.5rem;margin-bottom:0.5rem;
+                padding:0.2rem 0.5rem;margin-bottom:0.5rem;
                 font-size:0.78rem;color:#53a8e2;
+                width:fit-content;
             }
             /* thinking indicator */
-            .thinking{color:#6e6e76;display:flex;align-items:center;gap:0.4rem}
+            .thinking{
+                color:#6e6e76;display:flex;align-items:center;gap:0.4rem;
+                padding:0.5rem 0;font-size:0.88rem;
+            }
             .thinking .dots span{
                 display:inline-block;width:4px;height:4px;
                 background:#6e56cf;border-radius:50%;
@@ -198,13 +215,11 @@ app, rt = fast_app(
                 0%,80%,100%{opacity:.25}
                 40%{opacity:1}
             }
-            /* kbd shortcut hint */
-            kbd{
-                background:#1e1e24;border:1px solid #2a2a30;border-radius:3px;
-                padding:0.1rem 0.35rem;font-size:0.75rem;color:#6e6e76;
-            }
+            .htmx-indicator{display:none}
+            .htmx-request .htmx-indicator{display:flex}
+            .htmx-request .cmd-input button{opacity:.5;pointer-events:none}
         """),
-        # auto-resize textarea & submit on Enter (shift+enter for newline)
+        # auto-resize textarea, submit on Enter, clear after submit
         Script("""
             document.addEventListener('input', e => {
                 if(e.target.matches('.cmd-input textarea')){
@@ -215,7 +230,23 @@ app, rt = fast_app(
             document.addEventListener('keydown', e => {
                 if(e.target.matches('.cmd-input textarea') && e.key==='Enter' && !e.shiftKey){
                     e.preventDefault();
-                    e.target.closest('form').querySelector('button').click();
+                    htmx.trigger(e.target.closest('form'), 'submit');
+                }
+            });
+            // clear textarea after successful htmx request
+            document.addEventListener('htmx:afterRequest', e => {
+                if(!e.detail.successful) return;
+                const ta = e.target.querySelector('textarea[name=prompt]');
+                if(ta){ ta.value=''; ta.style.height='auto'; }
+            });
+            // auto-scroll output log to bottom on new content
+            document.addEventListener('htmx:afterSettle', () => {
+                const log = document.getElementById('output-log');
+                if(log){
+                    // remove the empty-state placeholder once we have real content
+                    const empty = log.querySelector('.empty-state');
+                    if(empty) empty.remove();
+                    log.scrollTop = log.scrollHeight;
                 }
             });
         """),
@@ -226,21 +257,45 @@ app, rt = fast_app(
 def _thinking_indicator():
     """Animated 'Thinking' shown while HTMX request is in-flight."""
     return Div(
-        Span("Thinking"),
+        Span("thinking"),
         Span(Span(), Span(), Span(), cls="dots"),
-        cls="thinking",
+        cls="thinking htmx-indicator",
     )
 
 
-def response_box(text: str = "", tool_info: str = "", placeholder: bool = True):
+def _status_span():
+    """Model status badge for the header."""
+    if _llm_ready:
+        return Span("ready", cls="status-ready")
+    return Span("loading model…", cls="status-loading")
+
+
+def _exchange(text: str, prompt: str = "", tool_info: str = ""):
+    """A single prompt→response exchange block in the output log."""
     parts = []
+    if prompt:
+        parts.append(
+            Div(Span("›", cls="label"), Span(f" {prompt}"), cls="user-prompt")
+        )
     if tool_info:
-        parts.append(Span(f"⚡ {tool_info}", cls="tool-tag"))
-    if placeholder and not text:
-        parts.append(Span("waiting for input", cls="empty"))
-    else:
-        parts.append(text)
-    return Div(*parts, id="response", cls="output")
+        parts.append(Div(f"⚡ {tool_info}", cls="tool-tag"))
+    parts.append(Div(text, cls="agent-response"))
+    return Div(*parts, cls="exchange")
+
+
+@rt("/status")
+def get():
+    """Returns just the header content — polled by hx-trigger."""
+    return Div(
+        Span("native-agents", cls="accent"),
+        Span(" — local model · "),
+        _status_span(),
+        id="shell-header",
+        cls="shell-header",
+        hx_get="/status",
+        hx_trigger="every 5s" if not _llm_ready else None,
+        hx_swap="outerHTML",
+    )
 
 
 @rt("/")
@@ -251,28 +306,33 @@ def get():
             Div(
                 Span("native-agents", cls="accent"),
                 Span(" — local model · "),
-                Span("ready" if _llm_ready else "loading model…"),
+                _status_span(),
+                id="shell-header",
                 cls="shell-header",
+                hx_get="/status",
+                hx_trigger="every 5s" if not _llm_ready else None,
+                hx_swap="outerHTML",
             ),
             Form(
                 Div(
-                    Span("›", cls="prompt-char"),
                     Textarea(
                         name="prompt",
                         placeholder="ask anything…",
                         rows=1,
                         autofocus=True,
                     ),
-                    Button("Run"),
+                    Button("run"),
                     cls="cmd-input",
                 ),
+                _thinking_indicator(),
                 hx_post="/generate",
-                hx_target="#response",
-                hx_swap="outerHTML",
-                hx_indicator="#thinking",
+                hx_target="#output-log",
+                hx_swap="beforeend",
             ),
-            Div(_thinking_indicator(), id="thinking", cls="htmx-indicator"),
-            response_box(),
+            Div(
+                Span("waiting for input…", cls="empty-state"),
+                id="output-log",
+            ),
             cls="shell",
         ),
     )
@@ -281,10 +341,10 @@ def get():
 @rt("/generate")
 async def post(prompt: str):
     if not prompt.strip():
-        return response_box("Please enter a prompt.", placeholder=False)
+        return ""
 
     if not _llm_ready:
-        return response_box("⏳ Model is still loading, please try again in a moment.", placeholder=False)
+        return _exchange("⏳ model is still loading — try again in a moment.", prompt=prompt.strip())
 
     messages = [
         {
@@ -342,7 +402,7 @@ async def post(prompt: str):
         fn_name = None
 
     if fn_name:
-        tool_info = f"Using tool: {fn_name}({json.dumps(fn_args)})"
+        tool_info = f"{fn_name}({json.dumps(fn_args)})"
 
         try:
             if fn_name == "star_trek_lookup":
@@ -354,7 +414,11 @@ async def post(prompt: str):
             error_detail = traceback.format_exc()
             print(f"Tool error: {error_detail}", flush=True)
             tool_result = f"Tool error: {e}"
-            return response_box(f"Tool error: {e}\n\n{error_detail}", tool_info=tool_info, placeholder=False)
+            return _exchange(
+                f"tool error: {e}\n\n{error_detail}",
+                prompt=prompt.strip(),
+                tool_info=tool_info,
+            )
 
         # Feed tool result back to model for a final response
         messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": tc_id, "type": "function", "function": {"name": fn_name, "arguments": json.dumps(fn_args)}}]})
@@ -376,7 +440,7 @@ async def post(prompt: str):
     else:
         text = message.get("content", "")
 
-    return response_box(text or "Done.", tool_info=tool_info, placeholder=False)
+    return _exchange(text or "done.", prompt=prompt.strip(), tool_info=tool_info)
 
 
 @rt("/health")
