@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from fasthtml.common import *
@@ -13,37 +15,66 @@ MODEL_PATH = Path(__file__).parent.parent / "models" / "qwen2.5-3b-instruct-q4_k
 
 # Lazy-loaded so uvicorn can start and serve /health immediately
 _llm: Llama | None = None
+_llm_lock = threading.Lock()
+_llm_ready = False
 
 
 def _get_llm() -> Llama:
-    global _llm
-    if _llm is None:
-        _llm = Llama(model_path=str(MODEL_PATH), n_ctx=4096, verbose=False)
+    global _llm, _llm_ready
+    with _llm_lock:
+        if _llm is None:
+            print(f"Loading model from {MODEL_PATH}...", flush=True)
+            _llm = Llama(model_path=str(MODEL_PATH), n_ctx=4096, verbose=False)
+            _llm_ready = True
+            print("Model loaded.", flush=True)
     return _llm
+
+
+def _preload_model() -> None:
+    """Background thread: load the model so the first request doesn't hang."""
+    try:
+        _get_llm()
+    except Exception as exc:
+        print(f"Model preload failed: {exc}", flush=True)
 
 
 # Playwright browser — kept alive so windows stay open
 _playwright = None
 _browser = None
+_pages: list = []  # keep page refs alive so they aren't GC'd and closed
 
 # Tool definitions for llama-cpp function calling
 TOOLS = [{
     "type": "function",
     "function": {
-        "name": "web_search",
-        "description": "Open a visible browser window with Bing search results for the given query.",
+        "name": "star_trek_lookup",
+        "description": "Search Bing for Star Trek information and open the results in a browser window.",
         "parameters": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "The search query to look up on Bing.",
+                    "description": "The Star Trek topic to search for.",
                 }
             },
             "required": ["query"],
         },
     },
 }]
+
+_STAR_TREK_KEYWORDS = {
+    "star trek", "kirk", "spock", "picard", "data", "scotty", "uhura", "worf",
+    "riker", "troi", "crusher", "la forge", "geordi", "janeway", "seven of nine",
+    "enterprise", "voyager", "defiant", "deep space", "next generation",
+    "tng", "ds9", "tos", "borg", "klingon", "vulcan", "romulan", "ferengi",
+    "cardassian", "bajoran", "holodeck", "starfleet", "warp", "transporter",
+    "tribble", "q continuum",
+}
+
+
+def _is_star_trek(prompt: str) -> bool:
+    lower = prompt.lower()
+    return any(kw in lower for kw in _STAR_TREK_KEYWORDS)
 
 
 async def _ensure_browser():
@@ -55,10 +86,23 @@ async def _ensure_browser():
 
 
 async def _web_search(query: str) -> str:
-    browser = await _ensure_browser()
-    page = await browser.new_page()
-    await page.goto(f"https://www.bing.com/search?q={query}")
-    return f"Opened Bing search for: {query}"
+    url = f"https://www.bing.com/search?q={query}"
+    try:
+        browser = await _ensure_browser()
+        page = await browser.new_page()
+        _pages.append(page)  # prevent GC so the window stays open
+        await page.goto(url)
+        return f"Opened Bing search for: {query}"
+    except Exception as playwright_err:
+        print(f"Playwright failed ({playwright_err}), falling back to system browser", flush=True)
+        # Fall back to system browser (open on macOS, start on Windows)
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", url])
+        elif sys.platform == "win32":
+            subprocess.Popen(["cmd", "/c", "start", url], shell=False)
+        else:
+            subprocess.Popen(["xdg-open", url])
+        return f"Opened Bing search for: {query}"
 
 
 app, rt = fast_app(
@@ -161,14 +205,26 @@ async def post(prompt: str):
     if not prompt.strip():
         return response_box("Please enter a prompt.", placeholder=False)
 
-    messages = [{"role": "user", "content": prompt.strip()}]
+    if not _llm_ready:
+        return response_box("⏳ Model is still loading, please try again in a moment.", placeholder=False)
+
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a helpful assistant. Answer questions directly and concisely.",
+        },
+        {"role": "user", "content": prompt.strip()},
+    ]
     tool_info = ""
+
+    # Only offer tools when the prompt is Star Trek-related — deterministic routing
+    active_tools = TOOLS if _is_star_trek(prompt) else []
 
     # First LLM call — may produce a tool call or a direct answer
     result = _get_llm().create_chat_completion(
         messages=messages,
-        tools=TOOLS,
-        tool_choice="auto",
+        tools=active_tools if active_tools else None,
+        tool_choice="auto" if active_tools else None,
         max_tokens=512,
     )
 
@@ -211,13 +267,16 @@ async def post(prompt: str):
         tool_info = f"Using tool: {fn_name}({json.dumps(fn_args)})"
 
         try:
-            if fn_name == "web_search":
+            if fn_name == "star_trek_lookup":
                 tool_result = await _web_search(fn_args.get("query", ""))
             else:
                 tool_result = f"Unknown tool: {fn_name}"
         except Exception as e:
             import traceback
-            tool_result = f"Tool error: {e}\n{traceback.format_exc()}"
+            error_detail = traceback.format_exc()
+            print(f"Tool error: {error_detail}", flush=True)
+            tool_result = f"Tool error: {e}"
+            return response_box(f"Tool error: {e}\n\n{error_detail}", tool_info=tool_info, placeholder=False)
 
         # Feed tool result back to model for a final response
         messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": tc_id, "type": "function", "function": {"name": fn_name, "arguments": json.dumps(fn_args)}}]})
@@ -249,4 +308,5 @@ def get():
 
 if __name__ == "__main__":
     import uvicorn
+    threading.Thread(target=_preload_model, daemon=True).start()
     uvicorn.run(app, host="127.0.0.1", port=5001)

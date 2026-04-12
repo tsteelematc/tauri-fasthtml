@@ -34,7 +34,18 @@
   - It copies `python/*.py` into `src-tauri/python-env/app/`, which is what the Tauri app actually runs.
 - `src-tauri/tauri.conf.json` bundles `python-env/**/*` as app resources, so production builds run the packaged Python runtime instead of a system Python installation.
 
-## Key conventions
+## Cross-platform compatibility
+
+This app targets both **macOS** and **Windows**. Always account for both platforms when making changes:
+
+- **Python dependencies**: Use pip environment markers for OS-specific packages (e.g., `pywin32; sys_platform == "win32"`, not a bare `pywin32`). Never add a Windows-only or macOS-only package without a marker.
+- **File paths**: Use `pathlib.Path` — never hardcode `/` or `\` separators. Avoid `/tmp/` paths; use `tempfile` or a platform-neutral location.
+- **Process/shell differences**: macOS uses `bin/python3` inside the venv; Windows uses `Scripts/python.exe`. `scripts/setup-python.py` already handles this — preserve that logic.
+- **Debug log path**: `/tmp/tauri-fasthtml-debug.log` is macOS-only. Windows writes to a different path — check `src-tauri/src/main.rs` for the per-platform log location before referencing it.
+- **Rust conditional compilation**: Use `#[cfg(target_os = "macos")]` / `#[cfg(windows)]` when platform behavior must diverge in Rust code.
+- **Testing changes**: If you only have one OS available, note which platform was tested and flag any untested platform assumptions.
+
+
 
 - Treat `src-tauri/python-env/` as generated application runtime state. Edit source files under `python/`, then rerun `python scripts/setup-python.py` to copy changes into `src-tauri/python-env/app/`.
 - The `models/` directory at the project root is also generated (gitignored, ~400 MB). Populate it by running `python scripts/download-model.py`. `setup-python.py` copies it to `python-env/models/` so the running app can find it.

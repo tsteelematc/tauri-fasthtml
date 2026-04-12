@@ -123,19 +123,26 @@ pub fn run() {
 }
 
 fn find_python_env(resource_dir: Option<&std::path::Path>) -> std::path::PathBuf {
-    // Bundled mode: prefer Tauri's resource dir (works in .app bundles)
+    // Dev mode: always prefer python-env next to Cargo.toml — it has the real venv
+    let dev_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python-env");
+    if dev_path.exists() {
+        let py = if cfg!(target_os = "windows") {
+            dev_path.join("venv").join("Scripts").join("python.exe")
+        } else {
+            dev_path.join("venv").join("bin").join("python3")
+        };
+        if py.exists() {
+            eprintln!("Using dev python-env at {:?}", dev_path);
+            return dev_path;
+        }
+    }
+    // Bundled mode: Tauri's resource dir (.app bundles and production builds)
     if let Some(res_dir) = resource_dir {
         let bundled = res_dir.join("python-env");
         if bundled.exists() {
             eprintln!("Using bundled python-env at {:?}", bundled);
             return bundled;
         }
-    }
-    // Dev mode: python-env next to Cargo.toml
-    let dev_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python-env");
-    if dev_path.exists() {
-        eprintln!("Using dev python-env at {:?}", dev_path);
-        return dev_path;
     }
     // Fallback: next to the executable
     let exe_dir = std::env::current_exe()
@@ -145,6 +152,14 @@ fn find_python_env(resource_dir: Option<&std::path::Path>) -> std::path::PathBuf
     let fallback = exe_dir.join("python-env");
     eprintln!("Using fallback python-env at {:?}", fallback);
     fallback
+}
+
+fn kill_port_5001() {
+    // Kill any process already listening on 5001 so our server can bind
+    #[cfg(target_os = "macos")]
+    { let _ = std::process::Command::new("sh").args(["-c", "lsof -ti :5001 | xargs kill -9 2>/dev/null"]).output(); }
+    #[cfg(target_os = "windows")]
+    { let _ = std::process::Command::new("cmd").args(["/c", "for /f \"tokens=5\" %a in ('netstat -aon ^| findstr :5001') do taskkill /PID %a /F 2>nul"]).output(); }
 }
 
 fn start_python_server(resource_dir: Option<&std::path::Path>, log: &mut Option<std::fs::File>) -> Option<std::process::Child> {
@@ -159,6 +174,9 @@ fn start_python_server(resource_dir: Option<&std::path::Path>, log: &mut Option<
     };
 
     write_log(log, &format!("Python env dir: {:?} (exists: {})", python_env, python_env.exists()));
+
+    // Clear any stale process on port 5001 before binding
+    kill_port_5001();
 
     // Use the venv Python so .pth files (needed by pywin32) are processed
     let python_exe = if cfg!(target_os = "windows") {
