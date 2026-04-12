@@ -109,13 +109,13 @@ app, rt = fast_app(
     hdrs=[
         Style("""
             *{box-sizing:border-box;margin:0;padding:0}
-            html,body{height:100%}
+            html{height:100%;background:#111113}
             body{
                 font-family:'SF Mono','Cascadia Code','Fira Code','Consolas',monospace;
                 background:#111113;
                 color:#c8c8cc;
                 display:flex;flex-direction:column;
-                min-height:100vh;
+                min-height:100%;
             }
             /* subtle gradient bar at top */
             body::before{
@@ -360,7 +360,7 @@ async def post(prompt: str):
     result = _get_llm().create_chat_completion(
         messages=messages,
         tools=active_tools if active_tools else None,
-        tool_choice="auto" if active_tools else None,
+        tool_choice="required" if active_tools else None,
         max_tokens=512,
     )
 
@@ -368,36 +368,55 @@ async def post(prompt: str):
     message = choice["message"]
     content = message.get("content") or ""
 
-    # Check structured tool_calls first, then fall back to parsing raw <tool_call> tags
+    # Check structured tool_calls first, then fall back to parsing raw text
     tool_calls = message.get("tool_calls")
     parsed_call = None
 
-    if not tool_calls and "<tool_call>" in content:
-        # Qwen models emit tool calls as: <tool_call>{{"name":...,"arguments":...}}</tool_call>
+    if not tool_calls and content.strip():
         import re
-        match = re.search(r"<tool_call>\s*(\{.*?\})\s*(?:</tool_call>|$)", content, re.DOTALL)
+        # Try <tool_call> wrapped JSON first
+        match = re.search(r"<tool_call>\s*(\{.*\})\s*(?:</tool_call>|$)", content, re.DOTALL)
+        # Fall back to bare JSON with a "name" key (model sometimes omits tags)
+        if not match:
+            match = re.search(r'(\{\s*"name"\s*:.*\})', content, re.DOTALL)
         if match:
             try:
                 raw = match.group(1).replace("{{", "{").replace("}}", "}")
                 call_data = json.loads(raw)
-                parsed_call = {
-                    "name": call_data.get("name", ""),
-                    "arguments": call_data.get("arguments", {}),
-                }
+                if "name" in call_data:
+                    parsed_call = {
+                        "name": call_data["name"],
+                        "arguments": call_data.get("arguments", {}),
+                    }
             except json.JSONDecodeError:
                 pass
 
+
+    fn_name = None
+    fn_args = {}
+    tc_id = "call_0"
+
     if tool_calls:
-        tc = tool_calls[0]
-        fn_name = tc["function"]["name"]
-        fn_args = json.loads(tc["function"]["arguments"]) if isinstance(tc["function"]["arguments"], str) else tc["function"]["arguments"]
-        tc_id = tc.get("id", "call_0")
-    elif parsed_call:
+        try:
+            tc = tool_calls[0]
+            fn_name = tc["function"]["name"]
+            fn_args = json.loads(tc["function"]["arguments"]) if isinstance(tc["function"]["arguments"], str) else tc["function"]["arguments"]
+            tc_id = tc.get("id", "call_0")
+        except (KeyError, IndexError, TypeError, json.JSONDecodeError) as e:
+            print(f"[DEBUG] structured tool_calls parse failed: {e}", flush=True)
+            fn_name = None
+
+    if not fn_name and parsed_call:
         fn_name = parsed_call["name"]
         fn_args = parsed_call["arguments"] if isinstance(parsed_call["arguments"], dict) else json.loads(parsed_call["arguments"])
         tc_id = "call_0"
-    else:
-        fn_name = None
+
+    # Deterministic fallback: if _is_star_trek matched but model didn't call the tool,
+    # force the call using the original prompt as the query
+    if not fn_name and active_tools:
+        fn_name = "star_trek_lookup"
+        fn_args = {"query": prompt.strip()}
+        tc_id = "call_0"
 
     if fn_name:
         tool_info = f"{fn_name}({json.dumps(fn_args)})"
@@ -437,6 +456,9 @@ async def post(prompt: str):
             text = tool_result
     else:
         text = message.get("content", "")
+        # Strip any unparsed <tool_call> tags that leaked through
+        import re
+        text = re.sub(r"</?tool_call>", "", text).strip()
 
     return _exchange(text or "done.", prompt=prompt.strip(), tool_info=tool_info)
 

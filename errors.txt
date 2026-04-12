@@ -1,7 +1,3 @@
-  File "C:\Users\t-ste\Documents\GitHub\2026-spring\tauri-fasthtml\scripts\setup-python.py", line 198, in <module>
-    main()
-    ~~~~^^
-  File "C:\Users\t-ste\Documents\GitHub\2026-spring\tauri-fasthtml\scripts\setup-python.py", line 188, in main
-    copy_models()
-    ^^^^^^^^^^^
-NameError: name 'copy_models' is not defined
+›
+kirk
+{"name": "star_trek_lookup", "arguments": {"query": "kirk"}}
