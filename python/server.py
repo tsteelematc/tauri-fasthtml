@@ -10,6 +10,7 @@ from pathlib import Path
 from fasthtml.common import *
 from llama_cpp import Llama
 from playwright.async_api import async_playwright
+from theme_toggle import get_theme, set_dark_theme, set_light_theme, toggle_theme
 
 MODEL_PATH = Path(__file__).parent.parent / "models" / "qwen2.5-3b-instruct-q4_k_m.gguf"
 
@@ -44,7 +45,7 @@ _browser = None
 _pages: list = []  # keep page refs alive so they aren't GC'd and closed
 
 # Tool definitions for llama-cpp function calling
-TOOLS = [{
+_STAR_TREK_TOOL = {
     "type": "function",
     "function": {
         "name": "star_trek_lookup",
@@ -60,7 +61,26 @@ TOOLS = [{
             "required": ["query"],
         },
     },
-}]
+}
+
+_APPEARANCE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "set_appearance",
+        "description": "Set the OS appearance (dark or light mode) or toggle it. Works on Windows and macOS.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["dark", "light", "toggle", "get"],
+                    "description": "The appearance action: 'dark' sets dark mode, 'light' sets light mode, 'toggle' switches between them, 'get' returns the current setting.",
+                }
+            },
+            "required": ["mode"],
+        },
+    },
+}
 
 _STAR_TREK_KEYWORDS = {
     "star trek", "kirk", "spock", "picard", "data", "scotty", "uhura", "worf",
@@ -353,14 +373,16 @@ async def post(prompt: str):
     ]
     tool_info = ""
 
-    # Only offer tools when the prompt is Star Trek-related — deterministic routing
-    active_tools = TOOLS if _is_star_trek(prompt) else []
+    # Appearance tool is always available; Star Trek tool is keyword-gated
+    active_tools = [_APPEARANCE_TOOL]
+    if _is_star_trek(prompt):
+        active_tools.append(_STAR_TREK_TOOL)
 
     # First LLM call — may produce a tool call or a direct answer
     result = _get_llm().create_chat_completion(
         messages=messages,
-        tools=active_tools if active_tools else None,
-        tool_choice="required" if active_tools else None,
+        tools=active_tools,
+        tool_choice="auto",
         max_tokens=512,
     )
 
@@ -413,7 +435,7 @@ async def post(prompt: str):
 
     # Deterministic fallback: if _is_star_trek matched but model didn't call the tool,
     # force the call using the original prompt as the query
-    if not fn_name and active_tools:
+    if not fn_name and _is_star_trek(prompt):
         fn_name = "star_trek_lookup"
         fn_args = {"query": prompt.strip()}
         tc_id = "call_0"
@@ -424,6 +446,18 @@ async def post(prompt: str):
         try:
             if fn_name == "star_trek_lookup":
                 tool_result = await _web_search(fn_args.get("query", ""))
+            elif fn_name == "set_appearance":
+                mode = fn_args.get("mode", "toggle")
+                if mode == "dark":
+                    tool_result = set_dark_theme()
+                elif mode == "light":
+                    tool_result = set_light_theme()
+                elif mode == "toggle":
+                    tool_result = toggle_theme()
+                elif mode == "get":
+                    tool_result = get_theme()
+                else:
+                    tool_result = f"Unknown appearance mode: {mode}"
             else:
                 tool_result = f"Unknown tool: {fn_name}"
         except Exception as e:
