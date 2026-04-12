@@ -120,7 +120,7 @@ app, rt = fast_app(
             /* subtle gradient bar at top */
             body::before{
                 content:'';display:block;height:2px;flex-shrink:0;
-                background:linear-gradient(90deg,#6e56cf 0%,#53a8e2 50%,#6e56cf 100%);
+                background:linear-gradient(90deg,#10b981 0%,#06b6d4 50%,#10b981 100%);
             }
             .shell{
                 flex:1;display:flex;flex-direction:column;
@@ -135,7 +135,7 @@ app, rt = fast_app(
                 font-size:0.8rem;color:#6e6e76;
                 user-select:none;
             }
-            .shell-header .accent{color:#8b8bf5}
+            .shell-header .accent{color:#34d399}
             .shell-header .status-ready{color:#3ddc84}
             .shell-header .status-loading{color:#f5a623}
             /* command input area */
@@ -155,9 +155,9 @@ app, rt = fast_app(
                 transition:border-color .15s;
             }
             .cmd-input textarea::placeholder{color:#4a4a52}
-            .cmd-input textarea:focus{border-color:#6e56cf}
+            .cmd-input textarea:focus{border-color:#10b981}
             .cmd-input button{
-                background:#6e56cf;color:#fff;
+                background:#10b981;color:#fff;
                 border:none;border-radius:6px;
                 padding:0 1rem;
                 font-family:inherit;font-size:0.85rem;
@@ -166,8 +166,8 @@ app, rt = fast_app(
                 height:2.25rem;flex-shrink:0;
                 line-height:2.25rem;
             }
-            .cmd-input button:hover{background:#7c6ad4}
-            .cmd-input button:active{background:#5b45b0}
+            .cmd-input button:hover{background:#059669}
+            .cmd-input button:active{background:#047857}
             /* output region */
             #output-log{
                 flex:1;overflow-y:auto;
@@ -187,7 +187,7 @@ app, rt = fast_app(
                 color:#6e6e76;font-size:0.8rem;margin-bottom:0.4rem;
                 display:flex;align-items:baseline;gap:0.4rem;
             }
-            .exchange .user-prompt .label{color:#6e56cf}
+            .exchange .user-prompt .label{color:#10b981}
             .exchange .agent-response{
                 white-space:pre-wrap;word-break:break-word;
                 color:#c8c8cc;
@@ -206,7 +206,7 @@ app, rt = fast_app(
             }
             .thinking .dots span{
                 display:inline-block;width:4px;height:4px;
-                background:#6e56cf;border-radius:50%;
+                background:#10b981;border-radius:50%;
                 animation:blink 1.4s infinite both;
             }
             .thinking .dots span:nth-child(2){animation-delay:.2s}
@@ -239,14 +239,12 @@ app, rt = fast_app(
                 const ta = e.target.querySelector('textarea[name=prompt]');
                 if(ta){ ta.value=''; ta.style.height='auto'; }
             });
-            // auto-scroll output log to bottom on new content
+            // remove placeholder on first response
             document.addEventListener('htmx:afterSettle', () => {
                 const log = document.getElementById('output-log');
                 if(log){
-                    // remove the empty-state placeholder once we have real content
                     const empty = log.querySelector('.empty-state');
                     if(empty) empty.remove();
-                    log.scrollTop = log.scrollHeight;
                 }
             });
         """),
@@ -327,7 +325,7 @@ def get():
                 _thinking_indicator(),
                 hx_post="/generate",
                 hx_target="#output-log",
-                hx_swap="beforeend",
+                hx_swap="afterbegin",
             ),
             Div(
                 Span("waiting for input…", cls="empty-state"),
