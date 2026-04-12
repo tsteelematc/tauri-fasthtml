@@ -1,12 +1,65 @@
 """Native Agents — local LLM chat app served as the UI for the Tauri desktop shell."""
 
+import asyncio
+import json
+import sys
 from pathlib import Path
+
 from fasthtml.common import *
 from llama_cpp import Llama
+from playwright.async_api import async_playwright
 
-MODEL_PATH = Path(__file__).parent.parent / "models" / "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+MODEL_PATH = Path(__file__).parent.parent / "models" / "qwen2.5-3b-instruct-q4_k_m.gguf"
 
-llm = Llama(model_path=str(MODEL_PATH), n_ctx=2048, verbose=False)
+# Lazy-loaded so uvicorn can start and serve /health immediately
+_llm: Llama | None = None
+
+
+def _get_llm() -> Llama:
+    global _llm
+    if _llm is None:
+        _llm = Llama(model_path=str(MODEL_PATH), n_ctx=4096, verbose=False)
+    return _llm
+
+
+# Playwright browser — kept alive so windows stay open
+_playwright = None
+_browser = None
+
+# Tool definitions for llama-cpp function calling
+TOOLS = [{
+    "type": "function",
+    "function": {
+        "name": "web_search",
+        "description": "Open a visible browser window with Bing search results for the given query.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query to look up on Bing.",
+                }
+            },
+            "required": ["query"],
+        },
+    },
+}]
+
+
+async def _ensure_browser():
+    global _playwright, _browser
+    if _browser is None or not _browser.is_connected():
+        _playwright = await async_playwright().start()
+        _browser = await _playwright.chromium.launch(headless=False)
+    return _browser
+
+
+async def _web_search(query: str) -> str:
+    browser = await _ensure_browser()
+    page = await browser.new_page()
+    await page.goto(f"https://www.bing.com/search?q={query}")
+    return f"Opened Bing search for: {query}"
+
 
 app, rt = fast_app(
     hdrs=[
@@ -50,6 +103,11 @@ app, rt = fast_app(
                 min-height: 60px; white-space: pre-wrap; line-height: 1.6;
                 font-size: 0.95rem;
             }
+            .tool-indicator {
+                margin-top: 0.75rem; padding: 0.5rem 0.75rem;
+                background: rgba(255,255,255,0.1); border-radius: 8px;
+                font-size: 0.85rem; color: rgba(255,255,255,0.7);
+            }
             .placeholder { color: rgba(255,255,255,0.5); font-style: italic; }
             .htmx-indicator { opacity: 0.6; }
         """)
@@ -57,13 +115,15 @@ app, rt = fast_app(
 )
 
 
-def response_box(text: str = "", placeholder: bool = True):
-    content = (
-        Span("Response will appear here...", cls="placeholder")
-        if placeholder and not text
-        else text
-    )
-    return Div(content, cls="response-box", id="response")
+def response_box(text: str = "", tool_info: str = "", placeholder: bool = True):
+    parts = []
+    if tool_info:
+        parts.append(Div(f"🔧 {tool_info}", cls="tool-indicator"))
+    if placeholder and not text:
+        parts.append(Div(Span("Response will appear here...", cls="placeholder"), cls="response-box"))
+    else:
+        parts.append(Div(text, cls="response-box"))
+    return Div(*parts, id="response")
 
 
 @rt("/")
@@ -75,7 +135,7 @@ def get():
             Form(
                 Textarea(
                     name="prompt",
-                    placeholder="Enter your prompt here...",
+                    placeholder='Try: "search for weather forecast"',
                     rows=4,
                     autofocus=True,
                 ),
@@ -97,16 +157,89 @@ def get():
 
 
 @rt("/generate")
-def post(prompt: str):
+async def post(prompt: str):
     if not prompt.strip():
         return response_box("Please enter a prompt.", placeholder=False)
 
-    result = llm.create_chat_completion(
-        messages=[{"role": "user", "content": prompt.strip()}],
+    messages = [{"role": "user", "content": prompt.strip()}]
+    tool_info = ""
+
+    # First LLM call — may produce a tool call or a direct answer
+    result = _get_llm().create_chat_completion(
+        messages=messages,
+        tools=TOOLS,
+        tool_choice="auto",
         max_tokens=512,
     )
-    text = result["choices"][0]["message"]["content"]
-    return response_box(text, placeholder=False)
+
+    choice = result["choices"][0]
+    message = choice["message"]
+    content = message.get("content") or ""
+
+    # Check structured tool_calls first, then fall back to parsing raw <tool_call> tags
+    tool_calls = message.get("tool_calls")
+    parsed_call = None
+
+    if not tool_calls and "<tool_call>" in content:
+        # Qwen models emit tool calls as: <tool_call>{{"name":...,"arguments":...}}</tool_call>
+        import re
+        match = re.search(r"<tool_call>\s*(\{.*\})\s*</tool_call>", content, re.DOTALL)
+        if match:
+            try:
+                raw = match.group(1).replace("{{", "{").replace("}}", "}")
+                call_data = json.loads(raw)
+                parsed_call = {
+                    "name": call_data.get("name", ""),
+                    "arguments": call_data.get("arguments", {}),
+                }
+            except json.JSONDecodeError:
+                pass
+
+    if tool_calls:
+        tc = tool_calls[0]
+        fn_name = tc["function"]["name"]
+        fn_args = json.loads(tc["function"]["arguments"]) if isinstance(tc["function"]["arguments"], str) else tc["function"]["arguments"]
+        tc_id = tc.get("id", "call_0")
+    elif parsed_call:
+        fn_name = parsed_call["name"]
+        fn_args = parsed_call["arguments"] if isinstance(parsed_call["arguments"], dict) else json.loads(parsed_call["arguments"])
+        tc_id = "call_0"
+    else:
+        fn_name = None
+
+    if fn_name:
+        tool_info = f"Using tool: {fn_name}({json.dumps(fn_args)})"
+
+        try:
+            if fn_name == "web_search":
+                tool_result = await _web_search(fn_args.get("query", ""))
+            else:
+                tool_result = f"Unknown tool: {fn_name}"
+        except Exception as e:
+            import traceback
+            tool_result = f"Tool error: {e}\n{traceback.format_exc()}"
+
+        # Feed tool result back to model for a final response
+        messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": tc_id, "type": "function", "function": {"name": fn_name, "arguments": json.dumps(fn_args)}}]})
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tc_id,
+            "content": tool_result,
+        })
+
+        try:
+            follow_up = _get_llm().create_chat_completion(
+                messages=messages,
+                max_tokens=512,
+            )
+            text = follow_up["choices"][0]["message"]["content"]
+        except Exception:
+            # If the follow-up LLM call fails, just show the tool result
+            text = tool_result
+    else:
+        text = message.get("content", "")
+
+    return response_box(text or "Done.", tool_info=tool_info, placeholder=False)
 
 
 @rt("/health")

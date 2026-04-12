@@ -139,6 +139,20 @@ def install_llama_cpp():
     print("llama-cpp-python installed.")
 
 
+def install_playwright_browsers():
+    """Install Chromium for Playwright inside the venv."""
+    if sys.platform == "win32":
+        playwright_bin = VENV_DIR / "Scripts" / "playwright.exe"
+    else:
+        playwright_bin = VENV_DIR / "bin" / "playwright"
+    if not playwright_bin.exists():
+        print("Playwright CLI not found — skipping browser install. Run 'playwright install chromium' manually.")
+        return
+    print("Installing Playwright Chromium browser...")
+    subprocess.run([str(playwright_bin), "install", "chromium"], check=True)
+    print("Playwright Chromium installed.")
+
+
 def copy_models():
     if not MODELS_SRC_DIR.exists():
         print(f"No models/ directory found at {MODELS_SRC_DIR} — skipping. Run scripts/download-model.py first.")
@@ -169,6 +183,7 @@ def main():
     create_venv()
     install_dependencies()
     install_llama_cpp()
+    install_playwright_browsers()
     copy_app_code()
     copy_models()
 

@@ -82,9 +82,9 @@ pub fn run() {
                         });
                     }
 
-                    // Wait for server to be ready (up to 60s — model load can be slow)
+                    // Wait for server to be ready (up to 120s — model load can be slow)
                     let mut server_ready = false;
-                    for i in 0..300 {
+                    for i in 0..600 {
                         std::thread::sleep(std::time::Duration::from_millis(100));
                         if let Ok(resp) = reqwest::blocking::get("http://127.0.0.1:5001/health") {
                             if resp.status().is_success() {
@@ -160,31 +160,19 @@ fn start_python_server(resource_dir: Option<&std::path::Path>, log: &mut Option<
 
     write_log(log, &format!("Python env dir: {:?} (exists: {})", python_env, python_env.exists()));
 
+    // Use the venv Python so .pth files (needed by pywin32) are processed
     let python_exe = if cfg!(target_os = "windows") {
-        python_env.join("python").join("python.exe")
+        python_env.join("venv").join("Scripts").join("python.exe")
     } else {
-        python_env.join("python").join("bin").join("python3")
+        python_env.join("venv").join("bin").join("python3")
     };
     write_log(log, &format!("Python exe: {:?} (exists: {})", python_exe, python_exe.exists()));
 
     let server_script = python_env.join("app").join("server.py");
     write_log(log, &format!("Server script: {:?} (exists: {})", server_script, server_script.exists()));
 
-    let venv_site_packages = if cfg!(target_os = "windows") {
-        python_env.join("venv").join("Lib").join("site-packages")
-    } else {
-        let lib_dir = python_env.join("venv").join("lib");
-        std::fs::read_dir(&lib_dir).ok()
-            .and_then(|entries| entries
-                .filter_map(|e| e.ok())
-                .find(|e| e.file_name().to_string_lossy().starts_with("python"))
-                .map(|e| e.path().join("site-packages")))
-            .unwrap_or(lib_dir.join("python3.12").join("site-packages"))
-    };
-
     match std::process::Command::new(&python_exe)
         .arg(&server_script)
-        .env("PYTHONPATH", &venv_site_packages)
         .env("PYTHONDONTWRITEBYTECODE", "1")
         .current_dir(std::env::temp_dir())
         .stdout(std::process::Stdio::piped())

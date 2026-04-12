@@ -1,5 +1,5 @@
 """
-Downloads the Qwen2.5-0.5B-Instruct Q4_K_M GGUF model (~400 MB) into models/
+Downloads the Qwen2.5-3B-Instruct Q4_K_M GGUF model (~2 GB) into models/
 at the project root. Skips download if the file already exists.
 
 Usage: python scripts/download-model.py
@@ -9,10 +9,10 @@ import urllib.request
 from pathlib import Path
 
 MODEL_URL = (
-    "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/"
-    "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+    "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/"
+    "qwen2.5-3b-instruct-q4_k_m.gguf"
 )
-MODEL_FILENAME = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+MODEL_FILENAME = "qwen2.5-3b-instruct-q4_k_m.gguf"
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MODELS_DIR = PROJECT_ROOT / "models"
@@ -35,7 +35,7 @@ def main() -> None:
         print(f"Model already exists at {MODEL_PATH}, skipping download.")
         return
 
-    print(f"Downloading {MODEL_FILENAME} (~400 MB) from Hugging Face...")
+    print(f"Downloading {MODEL_FILENAME} (~2 GB) from Hugging Face...")
     urllib.request.urlretrieve(MODEL_URL, MODEL_PATH, reporthook=_progress)
     print(f"\nModel saved to {MODEL_PATH}")
 
