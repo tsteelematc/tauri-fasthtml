@@ -43,9 +43,10 @@ pub fn run() {
             let resource_dir = app.path().resource_dir().ok();
 
             std::thread::spawn(move || {
-                // Write debug log to /tmp for diagnosing launch issues
-                let log_path = "/tmp/tauri-fasthtml-debug.log";
-                let mut log = std::fs::File::create(log_path).ok();
+                // Write debug log for diagnosing launch issues
+                let log_path = std::env::temp_dir().join("tauri-fasthtml-debug.log");
+                let log_path_str = log_path.to_string_lossy().to_string();
+                let mut log = std::fs::File::create(&log_path).ok();
                 let write_log = |log: &mut Option<std::fs::File>, msg: &str| {
                     if let Some(ref mut f) = log {
                         use std::io::Write;
@@ -54,6 +55,7 @@ pub fn run() {
                     eprintln!("{}", msg);
                 };
 
+                write_log(&mut log, &format!("debug log: {}", log_path_str));
                 write_log(&mut log, &format!("resource_dir: {:?}", resource_dir));
                 let child = start_python_server(resource_dir.as_deref(), &mut log);
                 if let Some(mut child) = child {
@@ -65,7 +67,7 @@ pub fn run() {
                     if let Some(stderr) = child.stderr.take() {
                         let mut log_clone = std::fs::OpenOptions::new()
                             .append(true)
-                            .open("/tmp/tauri-fasthtml-debug.log")
+                            .open(&log_path_str)
                             .ok();
                         std::thread::spawn(move || {
                             use std::io::{BufRead, BufReader, Write};
