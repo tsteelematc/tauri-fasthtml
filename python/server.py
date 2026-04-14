@@ -7,12 +7,34 @@ import sys
 import threading
 from pathlib import Path
 
+from platformdirs import user_data_dir
 from fasthtml.common import *
 from llama_cpp import Llama
 from playwright.async_api import async_playwright
 from theme_toggle import get_theme, set_dark_theme, set_light_theme, toggle_theme
 
 MODEL_PATH = Path(__file__).parent.parent / "models" / "qwen2.5-3b-instruct-q4_k_m.gguf"
+
+_SETTINGS_PATH = Path(user_data_dir("NativeAgents", "NativeAgents")) / "settings.json"
+
+
+def _load_dark_mode() -> bool:
+    try:
+        data = json.loads(_SETTINGS_PATH.read_text())
+        return bool(data.get("dark_mode", True))
+    except Exception:
+        return True
+
+
+def _save_dark_mode(value: bool) -> None:
+    try:
+        _SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _SETTINGS_PATH.write_text(json.dumps({"dark_mode": value}))
+    except Exception:
+        pass
+
+
+_dark_mode: bool = _load_dark_mode()
 
 # Lazy-loaded so uvicorn can start and serve /health immediately
 _llm: Llama | None = None
@@ -125,120 +147,155 @@ async def _web_search(query: str) -> str:
         return f"Opened Bing search for: {query}"
 
 
+def _make_css(dark: bool) -> str:
+    if dark:
+        bg = "#111113"
+        body_color = "#c8c8cc"
+        shell_header_color = "#6e6e76"
+        accent = "#34d399"
+        input_bg = "#1a1a1e"
+        input_color = "#e0e0e4"
+        input_border = "#2a2a30"
+        placeholder = "#4a4a52"
+        scrollbar_thumb = "#2a2a30"
+        empty_state = "#4a4a52"
+        exchange_border = "#1e1e24"
+        tool_tag_bg = "#1e1e24"
+        tool_tag_border = "#2a2a30"
+        thinking_color = "#6e6e76"
+    else:
+        bg = "#f5f5f7"
+        body_color = "#1d1d1f"
+        shell_header_color = "#6e6e73"
+        accent = "#059669"
+        input_bg = "#ffffff"
+        input_color = "#1d1d1f"
+        input_border = "#d1d1d6"
+        placeholder = "#aeaeb2"
+        scrollbar_thumb = "#c7c7cc"
+        empty_state = "#8e8e93"
+        exchange_border = "#e5e5ea"
+        tool_tag_bg = "#f0f0f5"
+        tool_tag_border = "#d1d1d6"
+        thinking_color = "#8e8e93"
+
+    return f"""
+        *{{box-sizing:border-box;margin:0;padding:0}}
+        html{{height:100%;background:{bg}}}
+        body{{
+            font-family:'SF Mono','Cascadia Code','Fira Code','Consolas',monospace;
+            background:{bg};
+            color:{body_color};
+            display:flex;flex-direction:column;
+            min-height:100%;
+        }}
+        body::before{{
+            content:'';display:block;height:2px;flex-shrink:0;
+            background:linear-gradient(90deg,#10b981 0%,#06b6d4 50%,#10b981 100%);
+        }}
+        .shell{{
+            flex:1;display:flex;flex-direction:column;
+            padding:1.25rem 1.5rem 1rem;
+            max-width:56rem;width:100%;
+        }}
+        @media(min-width:64rem){{.shell{{padding:1.5rem 2rem 1rem}}}}
+        .shell-header{{
+            display:flex;align-items:center;gap:0.5rem;
+            margin-bottom:1.25rem;
+            font-size:0.8rem;color:{shell_header_color};
+            user-select:none;
+        }}
+        .shell-header .accent{{color:{accent}}}
+        .shell-header .status-ready{{color:#3ddc84}}
+        .shell-header .status-loading{{color:#f5a623}}
+        .shell-header .theme-toggle{{
+            color:{shell_header_color};
+            text-decoration:underline;
+            text-underline-offset:2px;
+            cursor:pointer;
+        }}
+        .shell-header .theme-toggle:hover{{color:{accent}}}
+        .cmd-input{{
+            display:flex;gap:0.5rem;align-items:flex-start;
+            margin-bottom:1rem;
+        }}
+        .cmd-input textarea{{
+            flex:1;
+            background:{input_bg};color:{input_color};
+            border:1px solid {input_border};border-radius:6px;
+            padding:0.5rem 0.75rem;
+            font-family:inherit;font-size:0.9rem;
+            resize:none;outline:none;
+            min-height:2.25rem;max-height:10rem;
+            line-height:1.5;
+            transition:border-color .15s;
+        }}
+        .cmd-input textarea::placeholder{{color:{placeholder}}}
+        .cmd-input textarea:focus{{border-color:#10b981}}
+        .cmd-input button{{
+            background:#10b981;color:#fff;
+            border:none;border-radius:6px;
+            padding:0 1rem;
+            font-family:inherit;font-size:0.85rem;
+            cursor:pointer;white-space:nowrap;
+            transition:background .15s;
+            height:2.25rem;flex-shrink:0;
+            line-height:2.25rem;
+        }}
+        .cmd-input button:hover{{background:#059669}}
+        .cmd-input button:active{{background:#047857}}
+        #output-log{{
+            flex:1;overflow-y:auto;
+            padding:0.5rem 0;
+            font-size:0.88rem;line-height:1.7;
+        }}
+        #output-log::-webkit-scrollbar{{width:4px}}
+        #output-log::-webkit-scrollbar-thumb{{background:{scrollbar_thumb};border-radius:2px}}
+        .empty-state{{color:{empty_state};font-style:italic;font-size:0.85rem}}
+        .exchange{{
+            padding:0.75rem 0;
+            border-bottom:1px solid {exchange_border};
+        }}
+        .exchange:last-child{{border-bottom:none}}
+        .exchange .user-prompt{{
+            color:{shell_header_color};font-size:0.8rem;margin-bottom:0.4rem;
+            display:flex;align-items:baseline;gap:0.4rem;
+        }}
+        .exchange .user-prompt .label{{color:#10b981}}
+        .exchange .agent-response{{
+            white-space:pre-wrap;word-break:break-word;
+            color:{body_color};
+        }}
+        .exchange .tool-tag{{
+            display:block;
+            background:{tool_tag_bg};border:1px solid {tool_tag_border};border-radius:4px;
+            padding:0.2rem 0.5rem;margin-bottom:0.5rem;
+            font-size:0.78rem;color:#53a8e2;
+            width:fit-content;
+        }}
+        .thinking{{
+            color:{thinking_color};display:flex;align-items:center;gap:0.4rem;
+            padding:0.5rem 0;font-size:0.88rem;
+        }}
+        .thinking .dots span{{
+            display:inline-block;width:4px;height:4px;
+            background:#10b981;border-radius:50%;
+            animation:blink 1.4s infinite both;
+        }}
+        .thinking .dots span:nth-child(2){{animation-delay:.2s}}
+        .thinking .dots span:nth-child(3){{animation-delay:.4s}}
+        @keyframes blink{{
+            0%,80%,100%{{opacity:.25}}
+            40%{{opacity:1}}
+        }}
+        .htmx-indicator{{display:none}}
+        .htmx-request .htmx-indicator{{display:flex}}
+        .htmx-request .cmd-input button{{opacity:.5;pointer-events:none}}
+    """
+
+
 app, rt = fast_app(
     hdrs=[
-        Style("""
-            *{box-sizing:border-box;margin:0;padding:0}
-            html{height:100%;background:#111113}
-            body{
-                font-family:'SF Mono','Cascadia Code','Fira Code','Consolas',monospace;
-                background:#111113;
-                color:#c8c8cc;
-                display:flex;flex-direction:column;
-                min-height:100%;
-            }
-            /* subtle gradient bar at top */
-            body::before{
-                content:'';display:block;height:2px;flex-shrink:0;
-                background:linear-gradient(90deg,#10b981 0%,#06b6d4 50%,#10b981 100%);
-            }
-            .shell{
-                flex:1;display:flex;flex-direction:column;
-                padding:1.25rem 1.5rem 1rem;
-                max-width:56rem;width:100%;
-            }
-            @media(min-width:64rem){.shell{padding:1.5rem 2rem 1rem}}
-            /* header — live-updated via /status */
-            .shell-header{
-                display:flex;align-items:center;gap:0.5rem;
-                margin-bottom:1.25rem;
-                font-size:0.8rem;color:#6e6e76;
-                user-select:none;
-            }
-            .shell-header .accent{color:#34d399}
-            .shell-header .status-ready{color:#3ddc84}
-            .shell-header .status-loading{color:#f5a623}
-            /* command input area */
-            .cmd-input{
-                display:flex;gap:0.5rem;align-items:flex-start;
-                margin-bottom:1rem;
-            }
-            .cmd-input textarea{
-                flex:1;
-                background:#1a1a1e;color:#e0e0e4;
-                border:1px solid #2a2a30;border-radius:6px;
-                padding:0.5rem 0.75rem;
-                font-family:inherit;font-size:0.9rem;
-                resize:none;outline:none;
-                min-height:2.25rem;max-height:10rem;
-                line-height:1.5;
-                transition:border-color .15s;
-            }
-            .cmd-input textarea::placeholder{color:#4a4a52}
-            .cmd-input textarea:focus{border-color:#10b981}
-            .cmd-input button{
-                background:#10b981;color:#fff;
-                border:none;border-radius:6px;
-                padding:0 1rem;
-                font-family:inherit;font-size:0.85rem;
-                cursor:pointer;white-space:nowrap;
-                transition:background .15s;
-                height:2.25rem;flex-shrink:0;
-                line-height:2.25rem;
-            }
-            .cmd-input button:hover{background:#059669}
-            .cmd-input button:active{background:#047857}
-            /* output region */
-            #output-log{
-                flex:1;overflow-y:auto;
-                padding:0.5rem 0;
-                font-size:0.88rem;line-height:1.7;
-            }
-            #output-log::-webkit-scrollbar{width:4px}
-            #output-log::-webkit-scrollbar-thumb{background:#2a2a30;border-radius:2px}
-            .empty-state{color:#4a4a52;font-style:italic;font-size:0.85rem}
-            /* individual exchange block */
-            .exchange{
-                padding:0.75rem 0;
-                border-bottom:1px solid #1e1e24;
-            }
-            .exchange:last-child{border-bottom:none}
-            .exchange .user-prompt{
-                color:#6e6e76;font-size:0.8rem;margin-bottom:0.4rem;
-                display:flex;align-items:baseline;gap:0.4rem;
-            }
-            .exchange .user-prompt .label{color:#10b981}
-            .exchange .agent-response{
-                white-space:pre-wrap;word-break:break-word;
-                color:#c8c8cc;
-            }
-            .exchange .tool-tag{
-                display:block;
-                background:#1e1e24;border:1px solid #2a2a30;border-radius:4px;
-                padding:0.2rem 0.5rem;margin-bottom:0.5rem;
-                font-size:0.78rem;color:#53a8e2;
-                width:fit-content;
-            }
-            /* thinking indicator */
-            .thinking{
-                color:#6e6e76;display:flex;align-items:center;gap:0.4rem;
-                padding:0.5rem 0;font-size:0.88rem;
-            }
-            .thinking .dots span{
-                display:inline-block;width:4px;height:4px;
-                background:#10b981;border-radius:50%;
-                animation:blink 1.4s infinite both;
-            }
-            .thinking .dots span:nth-child(2){animation-delay:.2s}
-            .thinking .dots span:nth-child(3){animation-delay:.4s}
-            @keyframes blink{
-                0%,80%,100%{opacity:.25}
-                40%{opacity:1}
-            }
-            .htmx-indicator{display:none}
-            .htmx-request .htmx-indicator{display:flex}
-            .htmx-request .cmd-input button{opacity:.5;pointer-events:none}
-        """),
         # auto-resize textarea, submit on Enter, clear after submit
         Script("""
             document.addEventListener('input', e => {
@@ -304,10 +361,13 @@ def _exchange(text: str, prompt: str = "", tool_info: str = ""):
 @rt("/status")
 def get():
     """Returns just the header content — polled by hx-trigger."""
+    toggle_label = "toggle light" if _dark_mode else "toggle dark"
     return Div(
         Span("native-agents", cls="accent"),
         Span(" — local model · "),
         _status_span(),
+        Span(" · "),
+        A(toggle_label, href="/toggle-app-theme", cls="theme-toggle"),
         id="shell-header",
         cls="shell-header",
         hx_get="/status",
@@ -316,15 +376,28 @@ def get():
     )
 
 
+@rt("/toggle-app-theme")
+def get():
+    global _dark_mode
+    _dark_mode = not _dark_mode
+    _save_dark_mode(_dark_mode)
+    from starlette.responses import RedirectResponse as _Redirect
+    return _Redirect("/", status_code=302)
+
+
 @rt("/")
 def get():
+    toggle_label = "toggle light" if _dark_mode else "toggle dark"
     return (
         Title("Native Agents"),
+        Style(_make_css(_dark_mode)),
         Div(
             Div(
                 Span("native-agents", cls="accent"),
                 Span(" — local model · "),
                 _status_span(),
+                Span(" · "),
+                A(toggle_label, href="/toggle-app-theme", cls="theme-toggle"),
                 id="shell-header",
                 cls="shell-header",
                 hx_get="/status",
