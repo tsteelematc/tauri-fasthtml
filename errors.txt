@@ -1,3 +1,17 @@
 ›
-kirk
-{"name": "star_trek_lookup", "arguments": {"query": "kirk"}}
+set light mode
+⚡ set_appearance({"mode": "light"})
+The light mode has been set.
+›
+set dark mode
+⚡ set_appearance({"mode": "dark"})
+The dark mode has been set.
+›
+too bright
+{{"name": "set_appearance", "arguments": {"mode": "toggle"}}
+›
+who is luke skywalker
+Luke Skywalker is a character from the Star Wars franchise. He is the son of Anakin Skywalker and Padmé Amidala, and is a key figure in the original trilogy. Do you have a specific question about Luke Skywalker?
+›
+luke skywalker
+It seems like you might have intended to ask about changing the appearance mode. However, the query "luke skywalker" does not correspond to any of the available functions. Could you please provide more details or ask about changing the appearance mode?

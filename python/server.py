@@ -348,7 +348,7 @@ def get():
                 hx_swap="afterbegin",
             ),
             Div(
-                Span("waiting for input…", cls="empty-state"),
+                Span("waiting for response…", cls="empty-state"),
                 id="output-log",
             ),
             cls="shell",
