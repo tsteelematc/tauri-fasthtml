@@ -7,6 +7,7 @@ A cross-platform desktop application using **Tauri v2** as the native shell and 
 - **Node.js** 18+
 - **Rust** (via rustup)
 - **Python 3.10+** (only needed for the setup script, not at runtime)
+- **[uv](https://docs.astral.sh/uv/getting-started/installation/)** (used by `scripts/setup-python.py` to create venvs and install dependencies)
 - **Windows** or **macOS**
 
 ## Quick Start
@@ -25,6 +26,20 @@ npm run tauri dev
 npm run tauri build
 ```
 
+### Editor setup (avoiding import errors in `python/server.py`)
+
+For IntelliSense/Pylance to resolve imports when editing `python/server.py`, create a local
+editor-only virtual environment with `uv` (kept separate from the bundled runtime venv):
+
+```bash
+uv venv .venv --python 3.12
+uv pip install --python .venv/bin/python -r python/pyproject.toml
+```
+
+VS Code is already configured (see `.vscode/settings.json`) to use `.venv` as the default
+interpreter. `.venv/` is gitignored — rerun the two commands above after pulling if
+dependencies change.
+
 ## Architecture
 
 ```
@@ -39,7 +54,8 @@ Tauri (Rust) → spawns bundled Python → FastHTML serves UI on localhost:5001
 │   └── index.html
 ├── python/             # FastHTML application source
 │   ├── server.py       # Counter app
-│   └── requirements.txt
+│   ├── pyproject.toml  # Python deps, managed with uv
+│   └── uv.lock
 ├── scripts/
 │   └── setup-python.py # Downloads python-build-standalone + creates venv
 ├── src-tauri/

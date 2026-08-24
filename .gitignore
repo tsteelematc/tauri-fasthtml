@@ -1,4 +1,5 @@
 node_modules/
+.venv/
 src-tauri/target/
 src-tauri/python-env/
 src-tauri/python-env-deleted/

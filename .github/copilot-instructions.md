@@ -4,6 +4,7 @@
 
 - Install Node dependencies: `npm install`
 - Create or refresh the bundled Python runtime, venv, and install llama-cpp-python: `python scripts/setup-python.py`
+  - Requires [`uv`](https://docs.astral.sh/uv/getting-started/installation/) on PATH — the script uses `uv venv`/`uv pip install` instead of stdlib `venv`/`pip`.
   - On macOS, `python3 scripts/setup-python.py` is the safest form if `python` is not available.
   - macOS ARM64 and Windows x64: pre-built llama-cpp-python wheel is installed automatically (no compiler needed).
   - macOS x64: source build — requires Xcode Command Line Tools (`xcode-select --install`).
@@ -29,10 +30,11 @@
   - Once the health check passes, the webview navigates to `http://127.0.0.1:5001`, where the FastHTML UI is served.
 - `scripts/setup-python.py` is part of the runtime packaging flow, not just local setup:
   - It downloads `python-build-standalone`.
-  - It creates `src-tauri/python-env/venv`.
-  - It installs `python/requirements.txt` into that venv.
+  - It creates `src-tauri/python-env/venv` using `uv venv`.
+  - It installs dependencies from `python/pyproject.toml` (uv-managed; lockfile at `python/uv.lock`) using `uv pip install`.
   - It copies `python/*.py` into `src-tauri/python-env/app/`, which is what the Tauri app actually runs.
 - `src-tauri/tauri.conf.json` bundles `python-env/**/*` as app resources, so production builds run the packaged Python runtime instead of a system Python installation.
+- For editor IntelliSense on `python/server.py`, a separate dev-only venv exists at `.venv/` (repo root, gitignored), created via `uv venv .venv` and synced from `python/pyproject.toml`. VS Code is configured via `.vscode/settings.json` (`python.defaultInterpreterPath`) to use it. This venv is unrelated to the bundled `src-tauri/python-env/venv` used at runtime — keep both in sync with `python/pyproject.toml` when dependencies change.
 
 ## Cross-platform compatibility
 

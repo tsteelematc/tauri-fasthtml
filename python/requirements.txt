@@ -1,6 +1,0 @@
-python-fasthtml
-uvicorn
-mcp
-playwright
-platformdirs
-pywin32; sys_platform == "win32"

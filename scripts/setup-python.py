@@ -78,28 +78,43 @@ def get_python_exe() -> Path:
     return PYTHON_DIR / "bin" / "python3"
 
 
+def get_uv_exe() -> str:
+    uv_exe = shutil.which("uv")
+    if not uv_exe:
+        raise RuntimeError(
+            "uv is required but was not found on PATH. "
+            "Install it from https://docs.astral.sh/uv/getting-started/installation/ and try again."
+        )
+    return uv_exe
+
+
 def create_venv():
     if VENV_DIR.exists():
         print(f"Venv already exists at {VENV_DIR}, skipping.")
         return
 
+    uv_exe = get_uv_exe()
     python_exe = get_python_exe()
-    print(f"Creating venv with {python_exe}...")
-    subprocess.run([str(python_exe), "-m", "venv", str(VENV_DIR)], check=True)
+    print(f"Creating venv with uv using {python_exe}...")
+    subprocess.run([uv_exe, "venv", "--python", str(python_exe), str(VENV_DIR)], check=True)
     print(f"Venv created at {VENV_DIR}")
 
 
-def get_venv_pip() -> Path:
+def get_venv_python() -> Path:
     if platform.system() == "Windows":
-        return VENV_DIR / "Scripts" / "pip.exe"
-    return VENV_DIR / "bin" / "pip"
+        return VENV_DIR / "Scripts" / "python.exe"
+    return VENV_DIR / "bin" / "python"
 
 
 def install_dependencies():
-    pip = get_venv_pip()
-    requirements = PROJECT_ROOT / "python" / "requirements.txt"
-    print(f"Installing dependencies from {requirements}...")
-    subprocess.run([str(pip), "install", "-r", str(requirements)], check=True)
+    uv_exe = get_uv_exe()
+    pyproject = PROJECT_ROOT / "python" / "pyproject.toml"
+    venv_python = get_venv_python()
+    print(f"Installing dependencies from {pyproject}...")
+    subprocess.run(
+        [uv_exe, "pip", "install", "--python", str(venv_python), "-r", str(pyproject)],
+        check=True,
+    )
     print("Dependencies installed.")
 
 
@@ -124,18 +139,19 @@ def get_llama_cpp_wheel_url() -> str | None:
 
 
 def install_llama_cpp():
-    pip = get_venv_pip()
+    uv_exe = get_uv_exe()
+    venv_python = get_venv_python()
     wheel_url = get_llama_cpp_wheel_url()
     if wheel_url:
         print(f"Installing llama-cpp-python from pre-built wheel...")
-        subprocess.run([str(pip), "install", wheel_url], check=True)
+        subprocess.run([uv_exe, "pip", "install", "--python", str(venv_python), wheel_url], check=True)
     else:
         system = platform.system()
         machine = platform.machine()
         print(f"No pre-built wheel for {system} {machine} — building llama-cpp-python from source.")
         print("  macOS x64: ensure Xcode Command Line Tools are installed (xcode-select --install)")
         print("  Windows ARM64: ensure MSVC Build Tools are installed")
-        subprocess.run([str(pip), "install", "llama-cpp-python"], check=True)
+        subprocess.run([uv_exe, "pip", "install", "--python", str(venv_python), "llama-cpp-python"], check=True)
     print("llama-cpp-python installed.")
 
 
